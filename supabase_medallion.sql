@@ -327,16 +327,34 @@ begin
 end $$;
 
 -- -----------------------------------------------------------------------------
--- MIGRATION depuis la première version (tables dans public)
+-- MIGRATION depuis la première version du collecteur (tables dans public)
 -- -----------------------------------------------------------------------------
--- Le journal est conservé et déplacé en bronze ; l'ancienne table de mesures est
--- supprimée : silver est reconstruit depuis bronze au prochain chargement.
+-- Sécurisée pour une base existante : ne touche QUE les objets créés par le
+-- collecteur (reconnus à leur commentaire / leurs colonnes). Tout autre objet
+-- portant le même nom est laissé intact.
 do $$
 begin
-    if to_regclass('public.ingestion_log') is not null then
-        insert into bronze.ingestion_log select * from public.ingestion_log on conflict do nothing;
+    if to_regclass('public.ingestion_log') is not null
+       and (select count(*) from information_schema.columns
+            where table_schema = 'public' and table_name = 'ingestion_log'
+              and column_name in ('collected_at', 'source', 'sha256', 'n_records', 'source_timestamp')) = 5
+    then
+        insert into bronze.ingestion_log
+            (collected_at, source, url, http_status, bytes, sha256, n_records,
+             source_timestamp, stored, duration_ms, error)
+        select collected_at, source, url, http_status, bytes, sha256, n_records,
+               source_timestamp, stored, duration_ms, error
+        from public.ingestion_log
+        on conflict do nothing;
         drop table public.ingestion_log;
+        raise notice 'Ancien journal du collecteur migré vers bronze.ingestion_log';
+    end if;
+
+    if to_regclass('public.mesures_air') is not null
+       and obj_description('public.mesures_air'::regclass, 'pg_class') like 'Moyennes horaires Air Breizh%'
+    then
+        drop view if exists public.v_no2_ecart_trafic;
+        drop table public.mesures_air;
+        raise notice 'Ancienne table du collecteur supprimée (silver est reconstruit depuis bronze)';
     end if;
 end $$;
-drop view  if exists public.v_no2_ecart_trafic;
-drop table if exists public.mesures_air;

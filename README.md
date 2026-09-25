@@ -76,12 +76,16 @@ une correction de règle.
 Mise en place (une seule fois) :
 
 1. Projet Supabase (offre gratuite), région Europe.
-2. **SQL Editor → New query** : coller `supabase_medallion.sql`, puis **Run**. Le script est
-   ré-exécutable ; il migre aussi l'ancienne table `public.mesures_air` si elle existe.
-3. Secrets GitHub (**Settings → Secrets and variables → Actions**) :
+2. **Base déjà utilisée pour autre chose ?** Exécuter d'abord `verification_base_existante.sql`
+   (lecture seule) : il liste les objets qui porteraient déjà les mêmes noms (schémas `bronze`,
+   `silver`, `gold`, fonctions d'ingestion). Aucun résultat = voie libre.
+3. **SQL Editor → New query** : coller `supabase_medallion.sql`, puis **Run**. Le script est
+   ré-exécutable ; il ne supprime que les objets de l'ancienne version du collecteur, reconnus
+   à leur commentaire et à leurs colonnes. Toute autre table est laissée intacte.
+4. Secrets GitHub (**Settings → Secrets and variables → Actions**) :
    `SUPABASE_URL` (URL du projet) et `SUPABASE_SERVICE_KEY` (clé secrète `sb_secret_…`).
    Ne jamais écrire la clé dans un fichier : le dépôt est public.
-4. **Actions → Run workflow**.
+5. **Actions → Run workflow**.
 
 Sécurité : les schémas `bronze`, `silver`, `gold` ne sont pas exposés par l'API publique de
 Supabase ; les clés publiques (`anon`) n'y ont aucun accès. Seules les deux fonctions
@@ -173,6 +177,7 @@ air = (air.sort_values("_collected_at_utc")
 | `compact.py` | Compaction d'une journée en Parquet |
 | `ci_nightly.py` | Publication nocturne dans la Release du mois |
 | `download_history.py` | Rapatriement de l'historique sur votre PC |
+| `verification_base_existante.sql` | Contrôle en lecture seule avant installation dans une base existante |
 | `supabase_medallion.sql` | Architecture médaillon Supabase (bronze, silver, gold) à exécuter une fois |
 | `load_supabase.py` | Envoi des fichiers bruts en bronze (Supabase) |
 | `crontab.example`, `Dockerfile`, `run.sh` | Alternative : faire tourner sur une VM |
