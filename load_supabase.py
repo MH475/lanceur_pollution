@@ -2,8 +2,8 @@
 UrbanPulse - chargement des mesures Air Breizh dans Supabase (PostgreSQL).
 
 Lit les fichiers bruts collectés (data/raw/airbreizh_*/date=*/*.json.gz) qui n'ont
-pas encore été chargés, et les envoie dans la table public.mesures_air par l'API
-REST de Supabase. Envoie aussi les journaux de collecte dans public.ingestion_log.
+pas encore été chargés, et les envoie dans la table public.row_mesures_air par l'API
+REST de Supabase. Envoie aussi les journaux de collecte dans public.row_ingestion_log.
 
 - Clé de la table : (polluant, station_code, date_utc). Une heure déjà présente est
   mise à jour par une collecte plus récente (les semaines se chevauchent d'1 à 2 h,
@@ -48,6 +48,10 @@ STATUS_FILE = RAW_DIR / "_db_status.json"     # dernier résultat, lisible sur l
 ERRORS: list[str] = []
 BATCH = 500
 TIMEOUT_S = 60
+
+# Noms des tables dans Supabase
+TABLE_MESURES = "row_mesures_air"
+TABLE_JOURNAL = "row_ingestion_log"
 
 log = logging.getLogger("supabase")
 
@@ -116,8 +120,8 @@ def push_mesures(db: Supabase, rows: list[dict]) -> int:
     measured = [r for r in uniq.values() if r["valeur_ugm3"] is not None]
     missing = [r for r in uniq.values() if r["valeur_ugm3"] is None]
     conflict = "polluant,station_code,date_utc"
-    db.upsert("mesures_air", measured, conflict, overwrite=True)
-    db.upsert("mesures_air", missing, conflict, overwrite=False)   # trous : jamais d'écrasement
+    db.upsert(TABLE_MESURES, measured, conflict, overwrite=True)
+    db.upsert(TABLE_MESURES, missing, conflict, overwrite=False)   # trous : jamais d'écrasement
     return len(uniq)
 
 
@@ -181,7 +185,7 @@ def load_logs(db: Supabase, log_dir: Path) -> int:
     if not rows:
         return 0
     try:
-        db.upsert("ingestion_log", rows, "collected_at,source", overwrite=True)
+        db.upsert(TABLE_JOURNAL, rows, "collected_at,source", overwrite=True)
         log.info("Journal : %d ligne(s) envoyée(s)", len(rows))
         return 0
     except Exception as exc:

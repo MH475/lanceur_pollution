@@ -54,14 +54,14 @@ C'est tout : le workflow se relance ensuite seul (toutes les heures, collecte he
 ## Base de données Supabase (optionnel, recommandé)
 
 À chaque exécution, les mesures nouvellement collectées sont aussi envoyées dans une base
-**Supabase** (PostgreSQL), table `mesures_air` : **une ligne par gaz, par station et par heure**.
+**Supabase** (PostgreSQL), table `row_mesures_air` : **une ligne par gaz, par station et par heure**.
 Les fichiers bruts et les Releases GitHub restent la copie de référence.
 
 Mise en place (une seule fois) :
 
 1. Créer un projet sur https://supabase.com (offre gratuite), région **Europe (Paris ou Francfort)**.
 2. **SQL Editor → New query** : coller le contenu de `supabase_schema.sql`, puis **Run**.
-   Cela crée les tables `mesures_air` et `ingestion_log` et la vue `v_no2_ecart_trafic`.
+   Cela crée les tables `row_mesures_air` et `row_ingestion_log` et la vue `v_no2_ecart_trafic`.
 3. Récupérer deux valeurs dans Supabase, **Project Settings** :
    - **Data API** : l'URL du projet (`https://xxxx.supabase.co`) ;
    - **API Keys** : la clé **secrète** (`sb_secret_…`, ou l'ancienne clé `service_role`).
@@ -70,7 +70,7 @@ Mise en place (une seule fois) :
    - `SUPABASE_SERVICE_KEY` = la clé secrète.
    Ne jamais écrire cette clé dans un fichier du dépôt : le dépôt est public.
 5. Onglet **Actions → Run workflow** : les données de la semaine apparaissent dans
-   **Table Editor → mesures_air**.
+   **Table Editor → row_mesures_air**.
 
 Fonctionnement :
 - clé de la table : (polluant, station, heure). Une collecte plus récente met à jour l'heure
@@ -84,7 +84,7 @@ Fonctionnement :
 
 Lire les données en Python (entraînement, Streamlit) : chaîne de connexion dans
 **Connect → Session pooler**, puis
-`pd.read_sql("select * from mesures_air", "postgresql://…")`.
+`pd.read_sql("select * from row_mesures_air", "postgresql://…")`.
 
 ## Où sont les données
 

@@ -2,7 +2,7 @@
 -- À exécuter UNE FOIS dans Supabase : SQL Editor -> New query -> coller -> Run.
 
 -- 1. Mesures horaires : une ligne par gaz, par station et par heure ------------
-create table if not exists public.mesures_air (
+create table if not exists public.row_mesures_air (
     polluant        text             not null,            -- NO2, O3, PM10, PM2.5, NH3
     station_code    text             not null,            -- HALLE, LAENNE, MORDEL, THABOR
     station         text             not null,            -- Halles, Laënnec, Mordelles, Thabor
@@ -16,13 +16,13 @@ create table if not exists public.mesures_air (
     primary key (polluant, station_code, date_utc)
 );
 
-comment on table public.mesures_air is
+comment on table public.row_mesures_air is
   'Moyennes horaires Air Breizh (stations de Rennes), collectées chaque semaine par GitHub Actions. Licence ODbL, source : Air Breizh.';
 
-create index if not exists mesures_air_date_idx on public.mesures_air (date_utc);
+create index if not exists row_mesures_air_date_idx on public.row_mesures_air (date_utc);
 
 -- 2. Journal des collectes (traçabilité, fraîcheur, erreurs) ---------------------
-create table if not exists public.ingestion_log (
+create table if not exists public.row_ingestion_log (
     collected_at      timestamptz not null,
     source            text        not null,
     url               text,
@@ -40,8 +40,8 @@ create table if not exists public.ingestion_log (
 -- 3. Sécurité : Row Level Security activé, sans aucune règle d'accès public ------
 -- Seule la clé secrète (service_role), gardée dans les secrets GitHub, peut écrire.
 -- Les clés publiques (anon) ne peuvent ni lire ni écrire.
-alter table public.mesures_air   enable row level security;
-alter table public.ingestion_log enable row level security;
+alter table public.row_mesures_air   enable row level security;
+alter table public.row_ingestion_log enable row level security;
 
 -- 4. Vue pratique : NO2 par heure, stations trafic vs fond urbain ----------------
 -- Écart Halles - Thabor = estimation de la contribution locale du trafic.
@@ -54,7 +54,7 @@ select
     max(valeur_ugm3) filter (where station_code = 'THABOR') as no2_thabor,
     max(valeur_ugm3) filter (where station_code = 'HALLE')
       - max(valeur_ugm3) filter (where station_code = 'THABOR') as ecart_trafic_halles_thabor
-from public.mesures_air
+from public.row_mesures_air
 where polluant = 'NO2'
 group by date_utc
 order by date_utc;
