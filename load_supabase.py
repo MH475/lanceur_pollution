@@ -42,6 +42,8 @@ from compact import parse_airbreizh
 ROOT = Path(__file__).resolve().parent
 RAW_DIR = ROOT / "data" / "raw"
 STATE_FILE = RAW_DIR / "_db_loaded.json"
+STATUS_FILE = RAW_DIR / "_db_status.json"     # dernier résultat, lisible sur la branche data
+ERRORS: list[str] = []
 BATCH = 500
 TIMEOUT_S = 60
 
@@ -155,6 +157,7 @@ def load_raw(db: Supabase) -> int:
         except Exception as exc:
             errors += 1
             log.error("%s : %s (retenté à la prochaine exécution)", key, exc)
+            ERRORS.append(f"{key} : {exc}")
     save_state(state)
     return errors
 
@@ -179,6 +182,7 @@ def load_logs(db: Supabase, log_dir: Path) -> int:
         return 0
     except Exception as exc:
         log.error("Journal non envoyé : %s", exc)
+        ERRORS.append(f"ingestion_log : {exc}")
         return 1
 
 
@@ -208,6 +212,8 @@ def main() -> None:
     if not url or not key:
         log.info("SUPABASE_URL / SUPABASE_SERVICE_KEY absents : chargement Supabase ignoré")
         return
+    if not url.startswith("https://") or ".supabase.co" not in url:
+        log.warning("SUPABASE_URL inhabituelle : attendu https://<projet>.supabase.co")
     db = Supabase(url, key)
     if a.history:
         errors = load_history(db, a.history)
@@ -215,6 +221,15 @@ def main() -> None:
         errors = load_raw(db) + load_logs(db, RAW_DIR / "_logs")
     if errors:
         log.warning("%d erreur(s) : les fichiers concernés seront retentés", errors)
+    if not a.history:
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc
+        STATUS_FILE.write_text(json.dumps({
+            "derniere_execution_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "projet": host.split(".")[0][:4] + "…" if host else None,      # jamais la clé
+            "cle_type": "sb_secret" if key.startswith("sb_secret") else ("jwt" if key.startswith("eyJ") else "autre"),
+            "erreurs": ERRORS,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
     # Code de sortie 0 dans le workflow : l'archivage GitHub ne doit jamais être bloqué
     sys.exit(1 if errors and a.history else 0)
 
