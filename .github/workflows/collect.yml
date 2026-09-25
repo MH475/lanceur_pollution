@@ -55,6 +55,15 @@ jobs:
       - name: Collecter les sources dues
         run: python collect.py --due
 
+      - name: Charger dans Supabase (si les secrets sont configurés)
+        # Ne bloque jamais la suite : en cas d'erreur, les fichiers sont retentés
+        # à l'exécution suivante (état dans data/raw/_db_loaded.json).
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python load_supabase.py
+
       - name: Publier les jours terminés (Parquet dans la Release du mois)
         run: python ci_nightly.py
 

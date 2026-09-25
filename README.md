@@ -51,6 +51,41 @@ historique de trafic n'est constitué** : c'est pourtant la cible du modèle de 
 
 C'est tout : le workflow se relance ensuite seul (toutes les heures, collecte hebdomadaire).
 
+## Base de données Supabase (optionnel, recommandé)
+
+À chaque exécution, les mesures nouvellement collectées sont aussi envoyées dans une base
+**Supabase** (PostgreSQL), table `mesures_air` : **une ligne par gaz, par station et par heure**.
+Les fichiers bruts et les Releases GitHub restent la copie de référence.
+
+Mise en place (une seule fois) :
+
+1. Créer un projet sur https://supabase.com (offre gratuite), région **Europe (Paris ou Francfort)**.
+2. **SQL Editor → New query** : coller le contenu de `supabase_schema.sql`, puis **Run**.
+   Cela crée les tables `mesures_air` et `ingestion_log` et la vue `v_no2_ecart_trafic`.
+3. Récupérer deux valeurs dans Supabase, **Project Settings** :
+   - **Data API** : l'URL du projet (`https://xxxx.supabase.co`) ;
+   - **API Keys** : la clé **secrète** (`sb_secret_…`, ou l'ancienne clé `service_role`).
+4. Sur GitHub : **Settings → Secrets and variables → Actions → New repository secret**, créer :
+   - `SUPABASE_URL` = l'URL du projet ;
+   - `SUPABASE_SERVICE_KEY` = la clé secrète.
+   Ne jamais écrire cette clé dans un fichier du dépôt : le dépôt est public.
+5. Onglet **Actions → Run workflow** : les données de la semaine apparaissent dans
+   **Table Editor → mesures_air**.
+
+Fonctionnement :
+- clé de la table : (polluant, station, heure). Une collecte plus récente met à jour l'heure
+  (valeur validée par Air Breizh entre-temps) ; une heure vide n'écrase jamais une valeur ;
+- chaque fichier n'est envoyé qu'une fois (`data/raw/_db_loaded.json`) ; si Supabase est
+  indisponible, l'envoi est retenté à l'exécution suivante, sans bloquer l'archivage GitHub ;
+- sécurité : Row Level Security activé sans règle publique, seule la clé secrète peut écrire ;
+- rattrapage depuis les Releases si besoin :
+  `python download_history.py MH475/lanceur_pollution` puis
+  `SUPABASE_URL=… SUPABASE_SERVICE_KEY=… python load_supabase.py --history history`.
+
+Lire les données en Python (entraînement, Streamlit) : chaîne de connexion dans
+**Connect → Session pooler**, puis
+`pd.read_sql("select * from mesures_air", "postgresql://…")`.
+
 ## Où sont les données
 
 | Emplacement | Contenu |
@@ -129,6 +164,8 @@ air = (air.sort_values("_collected_at_utc")
 | `compact.py` | Compaction d'une journée en Parquet |
 | `ci_nightly.py` | Publication nocturne dans la Release du mois |
 | `download_history.py` | Rapatriement de l'historique sur votre PC |
+| `supabase_schema.sql` | Tables Supabase à créer une fois |
+| `load_supabase.py` | Envoi des mesures dans Supabase |
 | `crontab.example`, `Dockerfile`, `run.sh` | Alternative : faire tourner sur une VM |
 
 Licences : données Rennes Métropole et STAR sous ODbL. Citer la source et partager toute
