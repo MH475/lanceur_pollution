@@ -51,40 +51,49 @@ historique de trafic n'est constitué** : c'est pourtant la cible du modèle de 
 
 C'est tout : le workflow se relance ensuite seul (toutes les heures, collecte hebdomadaire).
 
-## Base de données Supabase (optionnel, recommandé)
+## Base de données Supabase : architecture médaillon
 
-À chaque exécution, les mesures nouvellement collectées sont aussi envoyées dans une base
-**Supabase** (PostgreSQL), table `mesures_air` : **une ligne par gaz, par station et par heure**.
-Les fichiers bruts et les Releases GitHub restent la copie de référence.
+```
+ Air Breizh ──► GitHub Actions ──► BRONZE ─────────────► SILVER ────────────────► GOLD
+ (chaque semaine)   collect.py      bronze.airbreizh_raw    silver.mesures_air        gold.no2_ecart_trafic
+                    load_supabase   réponse brute (jsonb),  1 ligne / polluant /      gold.qualite_air_journaliere
+                                    jamais modifiée         station / heure, typée,   gold.dernieres_mesures
+                                    bronze.ingestion_log    dédoublonnée, contrôlée   gold.completude_hebdo
+                                                            silver.stations           gold.seuils
+                        copie froide : Releases GitHub (Parquet), branche data (brut du jour)
+```
+
+| Couche | Contenu | Règles |
+|---|---|---|
+| **Bronze** | Réponse Air Breizh complète, telle que reçue (`payload` jsonb), + journal des appels | Ajout seulement, jamais de modification ; chaque fichier une seule fois (`raw_file` unique) |
+| **Silver** | `mesures_air` : polluant, station, heure UTC et locale, valeur, statut de validation, `qualite`, lignage `bronze_id` ; `stations` : référentiel (type, coordonnées) | Valeurs arrondies, typées ; `qualite` = ok / manquant / negatif / aberrant ; collecte plus récente prioritaire ; une heure vide n'écrase jamais une valeur |
+| **Gold** | Vues métier : écart NO2 trafic/fond, moyennes journalières et dépassements OMS (journée valide si ≥ 75 % des heures), dernières valeurs, complétude hebdomadaire | Uniquement les mesures `qualite = 'ok'` ; vues (pas de copie des données) |
+
+Toute la transformation bronze → silver est en SQL dans la base : silver peut être
+**entièrement reconstruit depuis bronze** (`select silver.rebuild();`), par exemple après
+une correction de règle.
 
 Mise en place (une seule fois) :
 
-1. Créer un projet sur https://supabase.com (offre gratuite), région **Europe (Paris ou Francfort)**.
-2. **SQL Editor → New query** : coller le contenu de `supabase_schema.sql`, puis **Run**.
-   Cela crée les tables `mesures_air` et `ingestion_log` et la vue `v_no2_ecart_trafic`.
-3. Récupérer deux valeurs dans Supabase, **Project Settings** :
-   - **Data API** : l'URL du projet (`https://xxxx.supabase.co`) ;
-   - **API Keys** : la clé **secrète** (`sb_secret_…`, ou l'ancienne clé `service_role`).
-4. Sur GitHub : **Settings → Secrets and variables → Actions → New repository secret**, créer :
-   - `SUPABASE_URL` = l'URL du projet ;
-   - `SUPABASE_SERVICE_KEY` = la clé secrète.
-   Ne jamais écrire cette clé dans un fichier du dépôt : le dépôt est public.
-5. Onglet **Actions → Run workflow** : les données de la semaine apparaissent dans
-   **Table Editor → mesures_air**.
+1. Projet Supabase (offre gratuite), région Europe.
+2. **SQL Editor → New query** : coller `supabase_medallion.sql`, puis **Run**. Le script est
+   ré-exécutable ; il migre aussi l'ancienne table `public.mesures_air` si elle existe.
+3. Secrets GitHub (**Settings → Secrets and variables → Actions**) :
+   `SUPABASE_URL` (URL du projet) et `SUPABASE_SERVICE_KEY` (clé secrète `sb_secret_…`).
+   Ne jamais écrire la clé dans un fichier : le dépôt est public.
+4. **Actions → Run workflow**.
 
-Fonctionnement :
-- clé de la table : (polluant, station, heure). Une collecte plus récente met à jour l'heure
-  (valeur validée par Air Breizh entre-temps) ; une heure vide n'écrase jamais une valeur ;
-- chaque fichier n'est envoyé qu'une fois (`data/raw/_db_loaded.json`) ; si Supabase est
-  indisponible, l'envoi est retenté à l'exécution suivante, sans bloquer l'archivage GitHub ;
-- sécurité : Row Level Security activé sans règle publique, seule la clé secrète peut écrire ;
-- rattrapage depuis les Releases si besoin :
-  `python download_history.py MH475/lanceur_pollution` puis
-  `SUPABASE_URL=… SUPABASE_SERVICE_KEY=… python load_supabase.py --history history`.
+Sécurité : les schémas `bronze`, `silver`, `gold` ne sont pas exposés par l'API publique de
+Supabase ; les clés publiques (`anon`) n'y ont aucun accès. Seules les deux fonctions
+d'ingestion (`public.ingest_airbreizh`, `public.ingest_log`) sont appelables, et uniquement
+avec la clé secrète. Row Level Security est activé sur toutes les tables.
 
-Lire les données en Python (entraînement, Streamlit) : chaîne de connexion dans
-**Connect → Session pooler**, puis
-`pd.read_sql("select * from mesures_air", "postgresql://…")`.
+Lire les données (Streamlit, entraînement) : chaîne de connexion **Connect → Session pooler**,
+puis par exemple `pd.read_sql("select * from gold.qualite_air_journaliere", "postgresql://…")`.
+
+Suivi : `raw/_db_status.json` sur la branche `data` (dernier chargement, erreurs éventuelles).
+Rattrapage depuis les Releases si besoin : `python download_history.py MH475/lanceur_pollution`
+puis `SUPABASE_URL=… SUPABASE_SERVICE_KEY=… python load_supabase.py --history history`.
 
 ## Où sont les données
 
@@ -164,8 +173,8 @@ air = (air.sort_values("_collected_at_utc")
 | `compact.py` | Compaction d'une journée en Parquet |
 | `ci_nightly.py` | Publication nocturne dans la Release du mois |
 | `download_history.py` | Rapatriement de l'historique sur votre PC |
-| `supabase_schema.sql` | Tables Supabase à créer une fois |
-| `load_supabase.py` | Envoi des mesures dans Supabase |
+| `supabase_medallion.sql` | Architecture médaillon Supabase (bronze, silver, gold) à exécuter une fois |
+| `load_supabase.py` | Envoi des fichiers bruts en bronze (Supabase) |
 | `crontab.example`, `Dockerfile`, `run.sh` | Alternative : faire tourner sur une VM |
 
 Licences : données Rennes Métropole et STAR sous ODbL. Citer la source et partager toute
