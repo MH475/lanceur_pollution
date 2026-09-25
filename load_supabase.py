@@ -2,8 +2,8 @@
 UrbanPulse - chargement des mesures Air Breizh dans Supabase (PostgreSQL).
 
 Lit les fichiers bruts collectés (data/raw/airbreizh_*/date=*/*.json.gz) qui n'ont
-pas encore été chargés, et les envoie dans la table public.row_mesures_air par l'API
-REST de Supabase. Envoie aussi les journaux de collecte dans public.row_ingestion_log.
+pas encore été chargés, et les envoie dans la table public.raw_mesures_air par l'API
+REST de Supabase. Envoie aussi les journaux de collecte dans public.raw_ingestion_log.
 
 - Clé de la table : (polluant, station_code, date_utc). Une heure déjà présente est
   mise à jour par une collecte plus récente (les semaines se chevauchent d'1 à 2 h,
@@ -50,8 +50,8 @@ BATCH = 500
 TIMEOUT_S = 60
 
 # Noms des tables dans Supabase
-TABLE_MESURES = "row_mesures_air"
-TABLE_JOURNAL = "row_ingestion_log"
+TABLE_MESURES = "raw_mesures_air"
+TABLE_JOURNAL = "raw_ingestion_log"
 
 log = logging.getLogger("supabase")
 
