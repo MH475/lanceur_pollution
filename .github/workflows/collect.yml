@@ -1,0 +1,91 @@
+name: Collecte UrbanPulse
+
+# Toutes les heures (à la minute 23). Seule Air Breizh est active, une fois par
+# semaine : le mode --due ne collecte que ce qui est dû, retente à l'heure
+# suivante en cas d'échec, et la publication de nuit passe à la première
+# exécution après minuit UTC. Si les sources temps réel sont réactivées dans
+# sources.py, remettre "*/5 * * * *".
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch: {}          # bouton "Run workflow" pour lancer à la main
+
+# Une seule exécution à la fois : jamais deux pushs concurrents sur la branche data
+concurrency:
+  group: urbanpulse-collector
+  cancel-in-progress: false
+
+permissions:
+  contents: write                # pousser sur la branche data + créer les releases
+  actions: write                 # garder le workflow actif (voir dernière étape)
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Récupérer la branche data (données du jour)
+        run: |
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          if git ls-remote --exit-code --heads "$REMOTE" data > /dev/null; then
+            git clone --quiet --depth 1 --branch data "$REMOTE" data
+          else
+            git init --quiet -b data data
+            git -C data remote add origin "$REMOTE"
+          fi
+          cd data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Collecter les sources dues
+        run: python collect.py --due
+
+      - name: Publier les jours terminés (Parquet dans la Release du mois)
+        run: python ci_nightly.py
+
+      - name: Enregistrer sur la branche data
+        run: |
+          cd data
+          if [ -f .squash ]; then
+            # Jour(s) publié(s) : on repart d'un historique vide pour garder le dépôt léger
+            echo "Jours publiés : $(cat .squash)"
+            rm .squash
+            git checkout --quiet --orphan fresh
+            git add -A
+            git commit --quiet -m "Données du jour ($(date -u +%F)) — historique publié en release" || true
+            git branch -D data > /dev/null 2>&1 || true
+            git branch -m data
+            git push --quiet --force origin data
+          else
+            git add -A
+            if git diff --cached --quiet; then
+              echo "Rien de nouveau"
+            else
+              git commit --quiet -m "Collecte $(date -u +%FT%H:%MZ)"
+              git push --quiet origin HEAD:data
+            fi
+          fi
+
+      - name: Garder le workflow actif
+        # GitHub désactive les workflows planifiés après 60 jours sans activité
+        # sur le dépôt. Réactiver le workflow chaque nuit évite l'arrêt silencieux.
+        if: always()
+        run: |
+          if [ "$(date -u +%H)" = "02" ]; then
+            gh api -X PUT "repos/${GH_REPO}/actions/workflows/collect.yml/enable" || true
+          fi

@@ -1,0 +1,18 @@
+# UrbanPulse – planification (crontab -e). Remplacer /opt/urbanpulse-collector par le vrai chemin.
+# Heures en UTC si le serveur est en UTC.
+SHELL=/bin/bash
+APP=/opt/urbanpulse-collector
+PY=/opt/urbanpulse-collector/.venv/bin/python
+
+# Toutes les 5 min : trafic + STAR temps réel
+*/5 * * * *  cd $APP && $PY collect.py trafic star_trip_updates star_vehicle_positions >> $APP/data/cron.log 2>&1
+# Toutes les 10 min : vélos STAR
+*/10 * * * * cd $APP && $PY collect.py vls_station_status >> $APP/data/cron.log 2>&1
+# Toutes les heures : travaux du jour
+7 * * * *    cd $APP && $PY collect.py travaux_1_jour >> $APP/data/cron.log 2>&1
+# Toutes les 6 h : travaux J+6
+17 */6 * * * cd $APP && $PY collect.py travaux_6_jours >> $APP/data/cron.log 2>&1
+# Une fois par jour : référentiels (GTFS théorique, stations vélo)
+40 3 * * *   cd $APP && $PY collect.py star_gtfs vls_station_information >> $APP/data/cron.log 2>&1
+# Chaque nuit : compaction de la veille en Parquet + purge des bruts > 30 jours
+20 1 * * *   cd $APP && $PY compact.py --purge-raw 30 >> $APP/data/cron.log 2>&1
