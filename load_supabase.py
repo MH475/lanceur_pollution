@@ -52,7 +52,10 @@ log = logging.getLogger("supabase")
 
 class Supabase:
     def __init__(self, url: str, key: str):
-        self.base = url.rstrip("/") + "/rest/v1"
+        # Seule l'adresse du projet compte : tolère une URL copiée avec /rest/v1 ou un chemin
+        from urllib.parse import urlparse
+        u = urlparse(url if "://" in url else f"https://{url}")
+        self.base = f"{u.scheme}://{u.netloc}/rest/v1"
         self.session = requests.Session()
         self.session.headers.update({"apikey": key, "Content-Type": "application/json"})
         if key.startswith("eyJ"):                 # ancienne clé service_role (JWT)
